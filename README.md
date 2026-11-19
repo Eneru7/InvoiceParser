@@ -43,7 +43,7 @@ $env:PADDLEOCR_API_TOKEN = "你的 API Token"
 
 ## 配置输入图片
 
-将图片放入 `data/images/`，然后修改 `main.py` 顶部的 `FILE_PATH`：
+将图片放入 `data/images/`，然后修改 `invoice_parser/config.py` 中的 `FILE_PATH`：
 
 ```python
 FILE_PATH = "data/images/b0.jpg"
@@ -73,7 +73,7 @@ uv run python main.py
 
 - `ocr_result_b0.jsonl`：API 返回的原始 JSONL 文本。由 `SAVE_RAW_JSONL` 控制，默认开启。
 - `invoice_data_b0.json`：从版面解析块整理出的发票 JSON。每页包含来源信息、已识别字段、未分类文本和原始来源块。
-- Markdown 文件、Markdown 引用的图片和布局解析图像：由 `SAVE_RESULT_FILES` 控制，默认关闭。需要这些文件时，将 `main.py` 中该值改为 `True`。
+- Markdown 文件、Markdown 引用的图片和布局解析图像：由 `invoice_parser/config.py` 中的 `SAVE_RESULT_FILES` 控制，默认关闭。需要这些文件时，将该值改为 `True`。
 
 字段提取按当前样本中的票据标签与表格结构进行解析。识别结果应结合 `source_blocks` 核对；遇到不同票据版式时，可能需要扩展字段映射规则。
 
@@ -84,7 +84,13 @@ InvoiceParser/
 ├── data/
 │   └── images/       # 输入票据图片
 ├── output/           # OCR 与结构化结果
-├── main.py           # API 调用和发票数据提取
+├── invoice_parser/
+│   ├── api.py        # API 认证、任务提交、轮询和结果下载
+│   ├── config.py     # 输入路径、模型、输出目录与功能开关
+│   ├── extractor.py # 从 OCR 结果提取发票字段
+│   ├── outputs.py    # 保存 JSONL、结构化 JSON 和可选图像结果
+│   └── workflow.py   # 编排完整的票据识别流程
+├── main.py           # 程序入口
 ├── pyproject.toml    # 项目元数据与依赖
 ├── uv.lock           # 锁定的依赖版本
 └── README.md
