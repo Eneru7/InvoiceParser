@@ -9,6 +9,7 @@
 - 从 `layoutParsingResults[].prunedResult.parsing_res_list` 提取发票字段，包括发票类型、号码、日期、购销双方、商品明细、合计金额和开票相关人员。
 - 保留 OCR 原始块作为 `source_blocks`，便于追溯字段来源；未能识别归类的内容放在 `unclassified`。
 - 根据输入图片文件名生成独立结果文件，避免多张图片的输出互相覆盖。
+- 支持有界线程池批量识别，并提供显式 API 与本地解析性能基准模式。
 
 ## 环境要求
 
@@ -61,6 +62,40 @@ FILE_PATH = "data/images/b0.jpg"
 uv run python main.py
 ```
 
+默认仍处理 `FILE_PATH` 中的单张图片。要并发处理目录中的所有图片，显式指定目录和并发数：
+
+```powershell
+uv run python main.py --input-dir data/images --workers 4
+```
+
+目录会递归扫描 `.jpg`、`.jpeg`、`.png`、`.bmp`、`.tif`、`.tiff` 和 `.webp`。同一批次中若发现同名主干文件，会在提交 OCR 任务前报错，避免输出覆盖。
+
+也可以通过命令行指定单个图片或 URL，而不修改 `FILE_PATH`：
+
+```powershell
+uv run python main.py --input data/images/b0.jpg
+```
+
+## 性能基准
+
+### 最近一次批量测试
+
+| 并发数 | 图片数 | 成功 | 失败 | 总耗时 | 平均墙钟耗时 | 吞吐量 |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 8 | 50 | 50 | 0 | 23.845 秒 | 0.477 秒/张 | 2.097 张/秒（约 126 张/分钟） |
+
+本轮测试成功率为 100%。平均墙钟耗时按批次总耗时除以图片数计算，表示整体处理速度，不等同于单张 API 请求的实际耗时。API 服务负载、网络状况和样本差异均可能影响结果；与其他测试比较时应尽量使用相同样本和环境。
+
+显式运行端到端 API 并发基准及本地 JSONL 解析基准：
+
+```powershell
+uv run python main.py --benchmark --sample-size 10 --worker-counts 1,2,4
+```
+
+基准从图片目录按固定随机种子选取样本；每个并发档位会重新提交同一组图片。因此默认会提交最多约 30 次 OCR 任务并消耗 API 服务额度。API 返回的 JSONL 会缓存到各档位独立目录，离线解析基准复用第一档缓存，不会额外调用 API。报告写入 `output/benchmarks/<运行编号>/benchmark_summary.json`，包含每档成功/失败数、总耗时、单图耗时、吞吐量和本地解析速度。可以通过 `--benchmark-dir` 指定样本目录。
+
+API 请求超时、任务最长等待时间和最大重试次数可在 `invoice_parser/config.py` 中调整。限流响应会优先遵循服务端 `Retry-After` 提示；单张失败会记录在汇总中，其他图片继续处理。
+
 也可以在 PyCharm 中将项目解释器设置为：
 
 ```text
@@ -73,7 +108,7 @@ uv run python main.py
 
 - `ocr_result_b0.jsonl`：API 返回的原始 JSONL 文本。由 `SAVE_RAW_JSONL` 控制，默认开启。
 - `invoice_data_b0.json`：从版面解析块整理出的发票 JSON。每页包含来源信息、已识别字段、未分类文本和原始来源块。
-- Markdown 文件、Markdown 引用的图片和布局解析图像：由 `invoice_parser/config.py` 中的 `SAVE_RESULT_FILES` 控制，默认关闭。需要这些文件时，将该值改为 `True`。
+- Markdown 文件、Markdown 引用的图片和布局解析图像：由 `invoice_parser/config.py` 中的 `SAVE_RESULT_FILES` 控制，默认关闭。开启后会放进各图片主干名对应的子目录。
 
 字段提取按当前样本中的票据标签与表格结构进行解析。识别结果应结合 `source_blocks` 核对；遇到不同票据版式时，可能需要扩展字段映射规则。
 
@@ -86,6 +121,8 @@ InvoiceParser/
 ├── output/           # OCR 与结构化结果
 ├── invoice_parser/
 │   ├── api.py        # API 认证、任务提交、轮询和结果下载
+│   ├── batch.py      # 图片扫描与线程池批处理
+│   ├── benchmark.py  # API 并发与离线解析基准
 │   ├── config.py     # 输入路径、模型、输出目录与功能开关
 │   ├── extractor.py # 从 OCR 结果提取发票字段
 │   ├── outputs.py    # 保存 JSONL、结构化 JSON 和可选图像结果
